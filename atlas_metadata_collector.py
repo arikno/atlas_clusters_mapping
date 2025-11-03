@@ -258,10 +258,19 @@ class AtlasMetadataCollector:
             processes = self.client.get_processes(project_id)
             
             if processes:
-                # Use the first process to try fetching metrics
-                process = processes[0]
-                process_id = process["id"]
-                print(f"      Using process: {process_id}")
+                # Try to find the primary process, otherwise use the first one
+                primary_process = None
+                for p in processes:
+                    if p.get("typeName") == "REPLICA_PRIMARY":
+                        primary_process = p
+                        break
+                
+                if not primary_process:
+                    primary_process = processes[0]
+                
+                process_id = primary_process["id"]
+                process_type = primary_process.get("typeName", "UNKNOWN")
+                print(f"      Using process: {process_id} ({process_type})")
                 
                 # Collect CPU metrics - sum multiple metrics
                 cpu_measurements = self.client.get_process_measurements(

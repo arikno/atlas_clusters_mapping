@@ -238,10 +238,10 @@ class AtlasMetadataCollector:
         
         # Metrics fields (will be populated if metrics are available)
         metadata.update({
-            "cpu_max_week": None,
-            "cpu_avg_week": None,
-            "memory_max_week": None,
-            "memory_avg_week": None,
+            "cpu_max_percent": None,
+            "cpu_avg_percent": None,
+            "memory_max_gb": None,
+            "memory_avg_gb": None,
             "iops_max_week": None,
             "iops_avg_week": None,
             "connections_max_week": None,
@@ -274,7 +274,7 @@ class AtlasMetadataCollector:
                 
                 # Collect CPU metrics - sum multiple metrics
                 cpu_measurements = self.client.get_process_measurements(
-                    project_id, process_id, "CPU_USAGE", granularity="PT1H", period="P7D"
+                    project_id, process_id, "CPU_USAGE", granularity="PT1M", period="P2D"
                 )
                 if cpu_measurements:
                     cpu_metric_names = [
@@ -290,12 +290,12 @@ class AtlasMetadataCollector:
                     if cpu_metrics_to_sum:
                         stats = self.calculate_metric_stats_from_multiple(cpu_metrics_to_sum)
                         if stats["max"] is not None:
-                            metadata["cpu_max_week"] = stats["max"]
-                            metadata["cpu_avg_week"] = stats["avg"]
+                            metadata["cpu_max_percent"] = stats["max"]
+                            metadata["cpu_avg_percent"] = stats["avg"]
                 
                 # Collect MEMORY metrics
                 memory_measurements = self.client.get_process_measurements(
-                    project_id, process_id, "MEMORY", granularity="PT1H", period="P7D"
+                    project_id, process_id, "MEMORY", granularity="PT1M", period="P2D"
                 )
                 if memory_measurements:
                     for measurement in memory_measurements.get("measurements", []):
@@ -303,14 +303,14 @@ class AtlasMetadataCollector:
                         if metric_name == "SYSTEM_MEMORY_USED":
                             stats = self.calculate_metric_stats_from_single(measurement)
                             if stats["max"] is not None:
-                                # Convert bytes to GB
-                                metadata["memory_max_week"] = round(stats["max"] / (1024**3), 2)
-                                metadata["memory_avg_week"] = round(stats["avg"] / (1024**3), 2)
+                                # SYSTEM_MEMORY_USED is in KB, convert to GB
+                                metadata["memory_max_gb"] = round(stats["max"] / (1024**2), 2)
+                                metadata["memory_avg_gb"] = round(stats["avg"] / (1024**2), 2)
                                 break
                 
                 # Collect DISK and DATABASE_SIZE metrics
                 disk_measurements = self.client.get_process_measurements(
-                    project_id, process_id, "DISK", granularity="PT1H", period="P7D"
+                    project_id, process_id, "DISK", granularity="PT1M", period="P2D"
                 )
                 if disk_measurements:
                     for measurement in disk_measurements.get("measurements", []):
@@ -324,7 +324,7 @@ class AtlasMetadataCollector:
                 
                 # Try DATABASE_SIZE for DB_DATA_SIZE_TOTAL
                 db_size_measurements = self.client.get_process_measurements(
-                    project_id, process_id, "DATABASE_SIZE", granularity="PT1H", period="P7D"
+                    project_id, process_id, "DATABASE_SIZE", granularity="PT1M", period="P2D"
                 )
                 if db_size_measurements:
                     for measurement in db_size_measurements.get("measurements", []):
@@ -347,7 +347,7 @@ class AtlasMetadataCollector:
                         if partition_name:
                             print(f"      Fetching IOPS from disk {partition_name}...")
                             iops_measurements = self.client.get_disk_measurements(
-                                project_id, process_id, partition_name, granularity="PT1H", period="P7D"
+                                project_id, process_id, partition_name, granularity="PT1M", period="P2D"
                             )
                             if iops_measurements:
                                 for measurement in iops_measurements.get("measurements", []):
@@ -363,7 +363,7 @@ class AtlasMetadataCollector:
                 
                 # Try DATABASE_OPERATIONS metrics for connections and operations
                 op_measurements = self.client.get_process_measurements(
-                    project_id, process_id, "DATABASE_OPERATIONS", granularity="PT1H", period="P7D"
+                    project_id, process_id, "DATABASE_OPERATIONS", granularity="PT1M", period="P2D"
                 )
                 if op_measurements:
                     # Connections
@@ -510,7 +510,7 @@ Environment variables:
                     'project_name', 'project_id', 'cluster_name', 'cluster_id',
                     'cluster_type', 'mongodb_version', 'state', 'provider', 'region',
                     'tier', 'disk_size_gb', 'created_at', 'updated_at',
-                    'cpu_max_week', 'cpu_avg_week', 'memory_max_week', 'memory_avg_week',
+                    'cpu_max_percent', 'cpu_avg_percent', 'memory_max_gb', 'memory_avg_gb',
                     'iops_max_week', 'iops_avg_week', 'connections_max_week', 'connections_avg_week',
                     'operations_max_week', 'operations_avg_week', 'disk_usage_max_gb', 'disk_available_max_gb'
                 ])
@@ -535,10 +535,10 @@ Environment variables:
                             cluster.get("disk_size_gb"),
                             cluster.get("created_at"),
                             cluster.get("updated_at"),
-                            cluster.get("cpu_max_week"),
-                            cluster.get("cpu_avg_week"),
-                            cluster.get("memory_max_week"),
-                            cluster.get("memory_avg_week"),
+                            cluster.get("cpu_max_percent"),
+                            cluster.get("cpu_avg_percent"),
+                            cluster.get("memory_max_gb"),
+                            cluster.get("memory_avg_gb"),
                             cluster.get("iops_max_week"),
                             cluster.get("iops_avg_week"),
                             cluster.get("connections_max_week"),

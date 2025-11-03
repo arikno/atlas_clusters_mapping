@@ -12,6 +12,7 @@ Usage:
     python cluster_check.py
 """
 
+import csv
 import json
 import sys
 from datetime import datetime, timezone
@@ -169,6 +170,9 @@ class AtlasClusterChecker:
             "write_ops_avg_week": None,
             "disk_usage_max_gb": None,
             "disk_available_max_gb": None,
+            "low_memory_use": None,
+            "low_iops_use": None,
+            "low_cpu_use": None,
         }
         
         try:
@@ -366,6 +370,59 @@ class AtlasClusterChecker:
         
         return metrics
     
+    def load_tier_specs(self) -> Dict:
+        """Load tier specifications from CSV file"""
+        tier_specs = {}
+        try:
+            with open('atlas tiers aws - sheet1.csv', 'r') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    # First column is the tier name (no header name)
+                    tier_name = None
+                    for key, value in row.items():
+                        if key.strip() == '':
+                            tier_name = value.strip()
+                            break
+                    if tier_name:
+                        tier_specs[tier_name] = {
+                            'cpu': float(row.get('cpu', 0)),
+                            'ram': float(row.get('ram', 0)),
+                            'connection': float(row.get('connection', 0)),
+                            'iops': float(row.get('iops', 0))
+                        }
+        except FileNotFoundError:
+            print("Warning: tier specs file not found")
+        return tier_specs
+    
+    def calculate_usage_flags(self, cluster_info: Dict, tier_specs: Dict) -> Dict:
+        """Calculate low usage flags based on tier specifications"""
+        tier = cluster_info.get("tier")
+        if not tier or tier not in tier_specs:
+            return cluster_info
+        
+        spec = tier_specs[tier]
+        
+        # Calculate memory usage percentage
+        memory_avg = cluster_info.get("memory_avg_gb")
+        ram_limit = spec.get("ram")
+        if memory_avg is not None and ram_limit:
+            memory_usage_percent = (memory_avg / ram_limit) * 100
+            cluster_info["low_memory_use"] = True if memory_usage_percent < 40 else None
+        
+        # Calculate IOPS usage percentage
+        iops_avg = cluster_info.get("iops_avg_week")
+        iops_limit = spec.get("iops")
+        if iops_avg is not None and iops_limit:
+            iops_usage_percent = (iops_avg / iops_limit) * 100
+            cluster_info["low_iops_use"] = True if iops_usage_percent < 40 else None
+        
+        # Calculate CPU usage percentage
+        cpu_avg = cluster_info.get("cpu_avg_percent")
+        if cpu_avg is not None:
+            cluster_info["low_cpu_use"] = True if cpu_avg < 40 else None
+        
+        return cluster_info
+    
     def check_clusters(self) -> Dict:
         """Check all clusters in the project"""
         print("=" * 80)
@@ -374,6 +431,9 @@ class AtlasClusterChecker:
         
         clusters = self.get_clusters()
         print(f"\nFound {len(clusters)} clusters\n")
+        
+        # Load tier specs once for all clusters
+        tier_specs = self.load_tier_specs()
         
         cluster_list = []
         for idx, cluster in enumerate(clusters, 1):
@@ -424,6 +484,9 @@ class AtlasClusterChecker:
                 cluster_info["disk_available_max_gb"] = round(
                     cluster_info["disk_size_gb"] - cluster_info["disk_usage_max_gb"], 2
                 )
+            
+            # Calculate usage flags
+            cluster_info = self.calculate_usage_flags(cluster_info, tier_specs)
             
             cluster_list.append(cluster_info)
             

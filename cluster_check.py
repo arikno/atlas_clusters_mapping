@@ -163,8 +163,10 @@ class AtlasClusterChecker:
             "iops_avg_week": None,
             "connections_max_week": None,
             "connections_avg_week": None,
-            "operations_max_week": None,
-            "operations_avg_week": None,
+            "read_ops_max_week": None,
+            "read_ops_avg_week": None,
+            "write_ops_max_week": None,
+            "write_ops_avg_week": None,
             "disk_usage_max_gb": None,
             "disk_available_max_gb": None,
         }
@@ -331,20 +333,33 @@ class AtlasClusterChecker:
                                 metrics["connections_avg_week"] = stats["avg"]
                                 break
                     
-                    # Operations - sum multiple metrics
-                    op_metric_names = [
-                        "OPCOUNTER_CMD", "OPCOUNTER_DELETE", "OPCOUNTER_TTL_DELETED",
-                        "OPCOUNTER_GETMORE", "OPCOUNTER_INSERT", "OPCOUNTER_QUERY", "OPCOUNTER_UPDATE"
+                    # Read operations - sum multiple metrics
+                    read_op_metric_names = [
+                        "OPCOUNTER_CMD", "OPCOUNTER_GETMORE", "OPCOUNTER_QUERY"
                     ]
-                    op_metrics_to_sum = [
+                    read_op_metrics_to_sum = [
                         m for m in op_measurements.get("measurements", [])
-                        if m.get("name") in op_metric_names
+                        if m.get("name") in read_op_metric_names
                     ]
-                    if op_metrics_to_sum:
-                        stats = self.calculate_metric_stats_from_multiple(op_metrics_to_sum)
+                    if read_op_metrics_to_sum:
+                        stats = self.calculate_metric_stats_from_multiple(read_op_metrics_to_sum)
                         if stats["max"] is not None:
-                            metrics["operations_max_week"] = stats["max"]
-                            metrics["operations_avg_week"] = stats["avg"]
+                            metrics["read_ops_max_week"] = stats["max"]
+                            metrics["read_ops_avg_week"] = stats["avg"]
+                    
+                    # Write operations - sum multiple metrics
+                    write_op_metric_names = [
+                        "OPCOUNTER_DELETE", "OPCOUNTER_TTL_DELETED", "OPCOUNTER_INSERT", "OPCOUNTER_UPDATE"
+                    ]
+                    write_op_metrics_to_sum = [
+                        m for m in op_measurements.get("measurements", [])
+                        if m.get("name") in write_op_metric_names
+                    ]
+                    if write_op_metrics_to_sum:
+                        stats = self.calculate_metric_stats_from_multiple(write_op_metrics_to_sum)
+                        if stats["max"] is not None:
+                            metrics["write_ops_max_week"] = stats["max"]
+                            metrics["write_ops_avg_week"] = stats["avg"]
             
         except Exception:
             pass

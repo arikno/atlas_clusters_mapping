@@ -245,8 +245,10 @@ class AtlasMetadataCollector:
             "iops_avg_week": None,
             "connections_max_week": None,
             "connections_avg_week": None,
-            "operations_max_week": None,
-            "operations_avg_week": None,
+            "read_ops_max_week": None,
+            "read_ops_avg_week": None,
+            "write_ops_max_week": None,
+            "write_ops_avg_week": None,
             "disk_usage_max_gb": None,
             "disk_available_max_gb": None,
         })
@@ -375,20 +377,33 @@ class AtlasMetadataCollector:
                                 metadata["connections_avg_week"] = stats["avg"]
                                 break
                     
-                    # Operations - sum multiple metrics
-                    op_metric_names = [
-                        "OPCOUNTER_CMD", "OPCOUNTER_DELETE", "OPCOUNTER_TTL_DELETED",
-                        "OPCOUNTER_GETMORE", "OPCOUNTER_INSERT", "OPCOUNTER_QUERY", "OPCOUNTER_UPDATE"
+                    # Read operations - sum multiple metrics
+                    read_op_metric_names = [
+                        "OPCOUNTER_CMD", "OPCOUNTER_GETMORE", "OPCOUNTER_QUERY"
                     ]
-                    op_metrics_to_sum = [
+                    read_op_metrics_to_sum = [
                         m for m in op_measurements.get("measurements", [])
-                        if m.get("name") in op_metric_names
+                        if m.get("name") in read_op_metric_names
                     ]
-                    if op_metrics_to_sum:
-                        stats = self.calculate_metric_stats_from_multiple(op_metrics_to_sum)
+                    if read_op_metrics_to_sum:
+                        stats = self.calculate_metric_stats_from_multiple(read_op_metrics_to_sum)
                         if stats["max"] is not None:
-                            metadata["operations_max_week"] = stats["max"]
-                            metadata["operations_avg_week"] = stats["avg"]
+                            metadata["read_ops_max_week"] = stats["max"]
+                            metadata["read_ops_avg_week"] = stats["avg"]
+                    
+                    # Write operations - sum multiple metrics
+                    write_op_metric_names = [
+                        "OPCOUNTER_DELETE", "OPCOUNTER_TTL_DELETED", "OPCOUNTER_INSERT", "OPCOUNTER_UPDATE"
+                    ]
+                    write_op_metrics_to_sum = [
+                        m for m in op_measurements.get("measurements", [])
+                        if m.get("name") in write_op_metric_names
+                    ]
+                    if write_op_metrics_to_sum:
+                        stats = self.calculate_metric_stats_from_multiple(write_op_metrics_to_sum)
+                        if stats["max"] is not None:
+                            metadata["write_ops_max_week"] = stats["max"]
+                            metadata["write_ops_avg_week"] = stats["avg"]
             
         except Exception as e:
             print(f"      Metrics not available: {str(e)[:100]}")
@@ -511,7 +526,8 @@ Environment variables:
                     'tier', 'disk_size_gb', 'created_at', 'updated_at',
                     'cpu_max_percent', 'cpu_avg_percent', 'memory_max_gb', 'memory_avg_gb',
                     'iops_max_week', 'iops_avg_week', 'connections_max_week', 'connections_avg_week',
-                    'operations_max_week', 'operations_avg_week', 'disk_usage_max_gb', 'disk_available_max_gb'
+                    'read_ops_max_week', 'read_ops_avg_week', 'write_ops_max_week', 'write_ops_avg_week',
+                    'disk_usage_max_gb', 'disk_available_max_gb'
                 ])
                 
                 # Write cluster data
@@ -542,8 +558,10 @@ Environment variables:
                             cluster.get("iops_avg_week"),
                             cluster.get("connections_max_week"),
                             cluster.get("connections_avg_week"),
-                            cluster.get("operations_max_week"),
-                            cluster.get("operations_avg_week"),
+                            cluster.get("read_ops_max_week"),
+                            cluster.get("read_ops_avg_week"),
+                            cluster.get("write_ops_max_week"),
+                            cluster.get("write_ops_avg_week"),
                             cluster.get("disk_usage_max_gb"),
                             cluster.get("disk_available_max_gb")
                         ])

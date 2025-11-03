@@ -15,6 +15,7 @@ Usage:
 """
 
 import argparse
+import csv
 import json
 import os
 import sys
@@ -341,13 +342,72 @@ Environment variables:
         collector = AtlasMetadataCollector(args.public_key, args.private_key, args.org_id)
         results = collector.collect_all_metadata()
         
-        with open(args.output, 'w') as f:
-            if args.pretty:
-                json.dump(results, f, indent=2)
-            else:
+        # Detect output format based on file extension
+        output_file = args.output
+        is_json = output_file.lower().endswith('.json')
+        is_csv = output_file.lower().endswith('.csv')
+        
+        if is_json:
+            # Write JSON output
+            with open(output_file, 'w') as f:
+                if args.pretty:
+                    json.dump(results, f, indent=2)
+                else:
+                    json.dump(results, f)
+        elif is_csv:
+            # Write CSV output
+            with open(output_file, 'w', newline='') as f:
+                writer = csv.writer(f)
+                
+                # Write header
+                writer.writerow([
+                    'project_name', 'project_id', 'cluster_name', 'cluster_id',
+                    'cluster_type', 'mongodb_version', 'state', 'provider', 'region',
+                    'tier', 'disk_size_gb', 'created_at', 'updated_at',
+                    'cpu_max_week', 'cpu_avg_week', 'memory_max_week', 'memory_avg_week',
+                    'iops_max_week', 'iops_avg_week', 'connections_max_week', 'connections_avg_week',
+                    'operations_max_week', 'operations_avg_week', 'disk_usage_max_gb', 'disk_available_max_gb'
+                ])
+                
+                # Write cluster data
+                for project in results["projects"]:
+                    project_name = project["project_name"]
+                    project_id = project["project_id"]
+                    
+                    for cluster in project["clusters"]:
+                        writer.writerow([
+                            project_name,
+                            project_id,
+                            cluster.get("cluster_name"),
+                            cluster.get("cluster_id"),
+                            cluster.get("cluster_type"),
+                            cluster.get("mongodb_version"),
+                            cluster.get("state"),
+                            cluster.get("provider"),
+                            cluster.get("region"),
+                            cluster.get("tier"),
+                            cluster.get("disk_size_gb"),
+                            cluster.get("created_at"),
+                            cluster.get("updated_at"),
+                            cluster.get("cpu_max_week"),
+                            cluster.get("cpu_avg_week"),
+                            cluster.get("memory_max_week"),
+                            cluster.get("memory_avg_week"),
+                            cluster.get("iops_max_week"),
+                            cluster.get("iops_avg_week"),
+                            cluster.get("connections_max_week"),
+                            cluster.get("connections_avg_week"),
+                            cluster.get("operations_max_week"),
+                            cluster.get("operations_avg_week"),
+                            cluster.get("disk_usage_max_gb"),
+                            cluster.get("disk_available_max_gb")
+                        ])
+        else:
+            # Default to JSON if extension is not recognized
+            with open(output_file, 'w') as f:
                 json.dump(results, f)
         
-        print(f"\nResults written to: {args.output}")
+        print(f"\nResults written to: {output_file}")
         
         total_clusters = sum(len(p["clusters"]) for p in results["projects"])
         print(f"Total clusters processed: {total_clusters}")

@@ -109,11 +109,10 @@ class AtlasAPIClient:
             'period': period,
             'measurementTypes': 'DISK_PARTITION_IOPS_TOTAL'
         }
-        endpoint = f"/groups/{project_id}/processes/{process_id}/disks/{partition_name}"
-        # Use v2 API endpoint
+        # Correct endpoint: /disks/{partition}/measurements
+        endpoint = f"/groups/{project_id}/processes/{process_id}/disks/{partition_name}/measurements"
         url = f"https://cloud.mongodb.com/api/atlas/v2{endpoint}"
         try:
-            # v2 API requires special Accept header
             headers = {"Accept": "application/vnd.atlas.2025-11-02+json"}
             response = self.session.get(url, params=params, headers=headers)
             response.raise_for_status()

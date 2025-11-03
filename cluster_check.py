@@ -160,19 +160,22 @@ class AtlasClusterChecker:
             "cpu_avg_percent": None,
             "memory_max_gb": None,
             "memory_avg_gb": None,
-            "iops_max_week": None,
-            "iops_avg_week": None,
-            "connections_max_week": None,
-            "connections_avg_week": None,
-            "read_ops_max_week": None,
-            "read_ops_avg_week": None,
-            "write_ops_max_week": None,
-            "write_ops_avg_week": None,
+            "iops_max": None,
+            "iops_avg": None,
+            "connections_max": None,
+            "connections_avg": None,
+            "read_ops_max": None,
+            "read_ops_avg": None,
+            "write_ops_max": None,
+            "write_ops_avg": None,
             "disk_usage_max_gb": None,
             "disk_available_max_gb": None,
             "low_memory_use": None,
             "low_iops_use": None,
             "low_cpu_use": None,
+            "cpu_tier_limit": None,
+            "memory_tier_limit_gb": None,
+            "iops_tier_limit": None,
         }
         
         try:
@@ -316,8 +319,8 @@ class AtlasClusterChecker:
                                     if metric_name == "DISK_PARTITION_IOPS_TOTAL":
                                         stats = self.calculate_metric_stats_from_single(measurement)
                                         if stats["max"] is not None:
-                                            metrics["iops_max_week"] = stats["max"]
-                                            metrics["iops_avg_week"] = stats["avg"]
+                                            metrics["iops_max"] = stats["max"]
+                                            metrics["iops_avg"] = stats["avg"]
                                             break
                 except Exception as e:
                     pass
@@ -333,8 +336,8 @@ class AtlasClusterChecker:
                         if metric_name == "CONNECTIONS":
                             stats = self.calculate_metric_stats_from_single(measurement)
                             if stats["max"] is not None:
-                                metrics["connections_max_week"] = stats["max"]
-                                metrics["connections_avg_week"] = stats["avg"]
+                                metrics["connections_max"] = stats["max"]
+                                metrics["connections_avg"] = stats["avg"]
                                 break
                     
                     # Read operations - sum multiple metrics
@@ -348,8 +351,8 @@ class AtlasClusterChecker:
                     if read_op_metrics_to_sum:
                         stats = self.calculate_metric_stats_from_multiple(read_op_metrics_to_sum)
                         if stats["max"] is not None:
-                            metrics["read_ops_max_week"] = stats["max"]
-                            metrics["read_ops_avg_week"] = stats["avg"]
+                            metrics["read_ops_max"] = stats["max"]
+                            metrics["read_ops_avg"] = stats["avg"]
                     
                     # Write operations - sum multiple metrics
                     write_op_metric_names = [
@@ -362,8 +365,8 @@ class AtlasClusterChecker:
                     if write_op_metrics_to_sum:
                         stats = self.calculate_metric_stats_from_multiple(write_op_metrics_to_sum)
                         if stats["max"] is not None:
-                            metrics["write_ops_max_week"] = stats["max"]
-                            metrics["write_ops_avg_week"] = stats["avg"]
+                            metrics["write_ops_max"] = stats["max"]
+                            metrics["write_ops_avg"] = stats["avg"]
             
         except Exception:
             pass
@@ -408,18 +411,22 @@ class AtlasClusterChecker:
         if memory_avg is not None and ram_limit:
             memory_usage_percent = (memory_avg / ram_limit) * 100
             cluster_info["low_memory_use"] = True if memory_usage_percent < 40 else None
+            cluster_info["memory_tier_limit_gb"] = ram_limit
         
         # Calculate IOPS usage percentage
-        iops_avg = cluster_info.get("iops_avg_week")
+        iops_avg = cluster_info.get("iops_avg")
         iops_limit = spec.get("iops")
         if iops_avg is not None and iops_limit:
             iops_usage_percent = (iops_avg / iops_limit) * 100
             cluster_info["low_iops_use"] = True if iops_usage_percent < 40 else None
+            cluster_info["iops_tier_limit"] = iops_limit
         
         # Calculate CPU usage percentage
         cpu_avg = cluster_info.get("cpu_avg_percent")
+        cpu_limit = spec.get("cpu")
         if cpu_avg is not None:
             cluster_info["low_cpu_use"] = True if cpu_avg < 40 else None
+            cluster_info["cpu_tier_limit"] = cpu_limit
         
         return cluster_info
     

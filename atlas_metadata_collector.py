@@ -221,18 +221,22 @@ class AtlasMetadataCollector:
         if memory_avg is not None and ram_limit:
             memory_usage_percent = (memory_avg / ram_limit) * 100
             metadata["low_memory_use"] = True if memory_usage_percent < 40 else None
+            metadata["memory_tier_limit_gb"] = ram_limit
         
         # Calculate IOPS usage percentage
-        iops_avg = metadata.get("iops_avg_week")
+        iops_avg = metadata.get("iops_avg")
         iops_limit = spec.get("iops")
         if iops_avg is not None and iops_limit:
             iops_usage_percent = (iops_avg / iops_limit) * 100
             metadata["low_iops_use"] = True if iops_usage_percent < 40 else None
+            metadata["iops_tier_limit"] = iops_limit
         
         # Calculate CPU usage percentage
         cpu_avg = metadata.get("cpu_avg_percent")
+        cpu_limit = spec.get("cpu")
         if cpu_avg is not None:
             metadata["low_cpu_use"] = True if cpu_avg < 40 else None
+            metadata["cpu_tier_limit"] = cpu_limit
         
         return metadata
     
@@ -294,19 +298,22 @@ class AtlasMetadataCollector:
             "cpu_avg_percent": None,
             "memory_max_gb": None,
             "memory_avg_gb": None,
-            "iops_max_week": None,
-            "iops_avg_week": None,
-            "connections_max_week": None,
-            "connections_avg_week": None,
-            "read_ops_max_week": None,
-            "read_ops_avg_week": None,
-            "write_ops_max_week": None,
-            "write_ops_avg_week": None,
+            "iops_max": None,
+            "iops_avg": None,
+            "connections_max": None,
+            "connections_avg": None,
+            "read_ops_max": None,
+            "read_ops_avg": None,
+            "write_ops_max": None,
+            "write_ops_avg": None,
             "disk_usage_max_gb": None,
             "disk_available_max_gb": None,
             "low_memory_use": None,
             "low_iops_use": None,
             "low_cpu_use": None,
+            "cpu_tier_limit": None,
+            "memory_tier_limit_gb": None,
+            "iops_tier_limit": None,
         })
         
         # Try to fetch metrics if available
@@ -458,8 +465,8 @@ class AtlasMetadataCollector:
                                     if metric_name == "DISK_PARTITION_IOPS_TOTAL":
                                         stats = self.calculate_metric_stats_from_single(measurement)
                                         if stats["max"] is not None:
-                                            metadata["iops_max_week"] = stats["max"]
-                                            metadata["iops_avg_week"] = stats["avg"]
+                                            metadata["iops_max"] = stats["max"]
+                                            metadata["iops_avg"] = stats["avg"]
                                             break
                 except Exception as e:
                     print(f"      Could not fetch IOPS metrics: {str(e)[:100]}")
@@ -475,8 +482,8 @@ class AtlasMetadataCollector:
                         if metric_name == "CONNECTIONS":
                             stats = self.calculate_metric_stats_from_single(measurement)
                             if stats["max"] is not None:
-                                metadata["connections_max_week"] = stats["max"]
-                                metadata["connections_avg_week"] = stats["avg"]
+                                metadata["connections_max"] = stats["max"]
+                                metadata["connections_avg"] = stats["avg"]
                                 break
                     
                     # Read operations - sum multiple metrics
@@ -490,8 +497,8 @@ class AtlasMetadataCollector:
                     if read_op_metrics_to_sum:
                         stats = self.calculate_metric_stats_from_multiple(read_op_metrics_to_sum)
                         if stats["max"] is not None:
-                            metadata["read_ops_max_week"] = stats["max"]
-                            metadata["read_ops_avg_week"] = stats["avg"]
+                            metadata["read_ops_max"] = stats["max"]
+                            metadata["read_ops_avg"] = stats["avg"]
                     
                     # Write operations - sum multiple metrics
                     write_op_metric_names = [
@@ -504,8 +511,8 @@ class AtlasMetadataCollector:
                     if write_op_metrics_to_sum:
                         stats = self.calculate_metric_stats_from_multiple(write_op_metrics_to_sum)
                         if stats["max"] is not None:
-                            metadata["write_ops_max_week"] = stats["max"]
-                            metadata["write_ops_avg_week"] = stats["avg"]
+                            metadata["write_ops_max"] = stats["max"]
+                            metadata["write_ops_avg"] = stats["avg"]
             
         except Exception as e:
             print(f"      Metrics not available: {str(e)[:100]}")
@@ -631,9 +638,10 @@ Environment variables:
                     'cluster_type', 'mongodb_version', 'state', 'provider', 'region',
                     'tier', 'disk_size_gb', 'created_at', 'updated_at',
                     'cpu_max_percent', 'cpu_avg_percent', 'memory_max_gb', 'memory_avg_gb',
-                    'iops_max_week', 'iops_avg_week', 'connections_max_week', 'connections_avg_week',
-                    'read_ops_max_week', 'read_ops_avg_week', 'write_ops_max_week', 'write_ops_avg_week',
+                    'iops_max', 'iops_avg', 'connections_max', 'connections_avg',
+                    'read_ops_max', 'read_ops_avg', 'write_ops_max', 'write_ops_avg',
                     'disk_usage_max_gb', 'disk_available_max_gb',
+                    'cpu_tier_limit', 'memory_tier_limit_gb', 'iops_tier_limit',
                     'low_cpu_use', 'low_memory_use', 'low_iops_use'
                 ])
                 
@@ -661,16 +669,19 @@ Environment variables:
                             cluster.get("cpu_avg_percent"),
                             cluster.get("memory_max_gb"),
                             cluster.get("memory_avg_gb"),
-                            cluster.get("iops_max_week"),
-                            cluster.get("iops_avg_week"),
-                            cluster.get("connections_max_week"),
-                            cluster.get("connections_avg_week"),
-                            cluster.get("read_ops_max_week"),
-                            cluster.get("read_ops_avg_week"),
-                            cluster.get("write_ops_max_week"),
-                            cluster.get("write_ops_avg_week"),
+                            cluster.get("iops_max"),
+                            cluster.get("iops_avg"),
+                            cluster.get("connections_max"),
+                            cluster.get("connections_avg"),
+                            cluster.get("read_ops_max"),
+                            cluster.get("read_ops_avg"),
+                            cluster.get("write_ops_max"),
+                            cluster.get("write_ops_avg"),
                             cluster.get("disk_usage_max_gb"),
                             cluster.get("disk_available_max_gb"),
+                            cluster.get("cpu_tier_limit"),
+                            cluster.get("memory_tier_limit_gb"),
+                            cluster.get("iops_tier_limit"),
                             cluster.get("low_cpu_use"),
                             cluster.get("low_memory_use"),
                             cluster.get("low_iops_use")

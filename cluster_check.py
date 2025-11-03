@@ -377,7 +377,7 @@ class AtlasClusterChecker:
         """Load tier specifications from CSV file"""
         tier_specs = {}
         try:
-            with open('atlas tiers aws - sheet1.csv', 'r') as f:
+            with open('atlas_aws.csv', 'r') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     # First column is the tier name (no header name)

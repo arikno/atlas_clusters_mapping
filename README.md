@@ -28,6 +28,10 @@ pip3 install -r requirements.txt
 
 ## Usage
 
+The script supports both JSON and CSV output formats:
+
+### JSON Output
+
 ```bash
 python3 atlas_metadata_collector.py \
   --org-id YOUR_ORG_ID \
@@ -36,6 +40,18 @@ python3 atlas_metadata_collector.py \
   --output atlas_metadata.json \
   --pretty
 ```
+
+### CSV Output
+
+```bash
+python3 atlas_metadata_collector.py \
+  --org-id YOUR_ORG_ID \
+  --public-key YOUR_PUBLIC_KEY \
+  --private-key YOUR_PRIVATE_KEY \
+  --output atlas_metadata.csv
+```
+
+The output format is automatically detected by the file extension (`.json` or `.csv`).
 
 ## Getting MongoDB Atlas Credentials
 

@@ -85,6 +85,43 @@ class AtlasAPIClient:
         }
         endpoint = f"/groups/{project_id}/processes/{process_id}/measurements"
         return self._get(endpoint, params=params, raise_on_error=False)
+    
+    def get_disks(self, project_id: str, process_id: str) -> List[Dict]:
+        """Get all disks for a process using v2 API"""
+        endpoint = f"/groups/{project_id}/processes/{process_id}/disks"
+        # Use v2 API endpoint
+        url = f"https://cloud.mongodb.com/api/atlas/v2{endpoint}"
+        try:
+            # v2 API requires special Accept header
+            headers = {"Accept": "application/vnd.atlas.2025-11-02+json"}
+            response = self.session.get(url, headers=headers)
+            response.raise_for_status()
+            result = response.json()
+            return result.get("results", [])
+        except requests.exceptions.RequestException:
+            return []
+    
+    def get_disk_measurements(self, project_id: str, process_id: str, partition_name: str,
+                             granularity: str = "PT1H", period: str = "P7D") -> Optional[Dict]:
+        """Get disk-level measurements using v2 API"""
+        params = {
+            'granularity': granularity,
+            'period': period,
+            'measurementTypes': 'DISK_PARTITION_IOPS_TOTAL'
+        }
+        endpoint = f"/groups/{project_id}/processes/{process_id}/disks/{partition_name}"
+        # Use v2 API endpoint
+        url = f"https://cloud.mongodb.com/api/atlas/v2{endpoint}"
+        try:
+            # v2 API requires special Accept header
+            headers = {"Accept": "application/vnd.atlas.2025-11-02+json"}
+            response = self.session.get(url, params=params, headers=headers)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.HTTPError:
+            return None
+        except requests.exceptions.RequestException:
+            return None
 
 
 class AtlasMetadataCollector:
@@ -108,6 +145,44 @@ class AtlasMetadataCollector:
         avg_val = sum(data_points) / len(data_points)
         
         return {"max": round(max_val, 2), "avg": round(avg_val, 2), "data_point_count": len(data_points)}
+    
+    def calculate_metric_stats_from_multiple(self, measurements: List[Dict]) -> Dict[str, float]:
+        """
+        Calculate max and avg by summing multiple metrics at each timestamp
+        
+        Args:
+            measurements: List of measurement dictionaries with dataPoints
+            
+        Returns:
+            Dictionary with max, avg, and data_point_count
+        """
+        # Collect all timestamps
+        all_timestamps = set()
+        for measurement in measurements:
+            for datapoint in measurement.get("dataPoints", []):
+                if datapoint.get("timestamp"):
+                    all_timestamps.add(datapoint["timestamp"])
+        
+        if not all_timestamps:
+            return {"max": None, "avg": None, "data_point_count": 0}
+        
+        # Sum values at each timestamp
+        timestamp_sums = {}
+        for timestamp in all_timestamps:
+            timestamp_sums[timestamp] = 0
+            for measurement in measurements:
+                for datapoint in measurement.get("dataPoints", []):
+                    if datapoint.get("timestamp") == timestamp and datapoint.get("value") is not None:
+                        timestamp_sums[timestamp] += datapoint["value"]
+        
+        sums = list(timestamp_sums.values())
+        if not sums:
+            return {"max": None, "avg": None, "data_point_count": 0}
+        
+        max_val = max(sums)
+        avg_val = sum(sums) / len(sums)
+        
+        return {"max": round(max_val, 2), "avg": round(avg_val, 2), "data_point_count": len(sums)}
     
     def collect_cluster_metadata(self, project_id: str, cluster: Dict) -> Dict:
         """Collect metadata for a single cluster"""
@@ -188,28 +263,35 @@ class AtlasMetadataCollector:
                 process_id = process["id"]
                 print(f"      Using process: {process_id}")
                 
-                # Try CPU_USAGE metrics
+                # Collect CPU metrics - sum multiple metrics
                 cpu_measurements = self.client.get_process_measurements(
                     project_id, process_id, "CPU_USAGE", granularity="PT1H", period="P7D"
                 )
                 if cpu_measurements:
-                    for measurement in cpu_measurements.get("measurements", []):
-                        metric_name = measurement.get("name")
-                        if metric_name in ["PROCESS_NORMALIZED_CPU_USER", "PROCESS_CPU_USER"]:
-                            stats = self.calculate_metric_stats_from_single(measurement)
-                            if stats["max"] is not None:
-                                metadata["cpu_max_week"] = stats["max"]
-                                metadata["cpu_avg_week"] = stats["avg"]
-                                break
+                    cpu_metric_names = [
+                        "SYSTEM_NORMALIZED_CPU_GUEST", "SYSTEM_NORMALIZED_CPU_IOWAIT",
+                        "SYSTEM_NORMALIZED_CPU_IRQ", "SYSTEM_NORMALIZED_CPU_KERNEL",
+                        "SYSTEM_NORMALIZED_CPU_NICE", "SYSTEM_NORMALIZED_CPU_SOFTIRQ",
+                        "SYSTEM_NORMALIZED_CPU_STEAL", "SYSTEM_NORMALIZED_CPU_USER"
+                    ]
+                    cpu_metrics_to_sum = [
+                        m for m in cpu_measurements.get("measurements", [])
+                        if m.get("name") in cpu_metric_names
+                    ]
+                    if cpu_metrics_to_sum:
+                        stats = self.calculate_metric_stats_from_multiple(cpu_metrics_to_sum)
+                        if stats["max"] is not None:
+                            metadata["cpu_max_week"] = stats["max"]
+                            metadata["cpu_avg_week"] = stats["avg"]
                 
-                # Try MEMORY metrics
+                # Collect MEMORY metrics
                 memory_measurements = self.client.get_process_measurements(
                     project_id, process_id, "MEMORY", granularity="PT1H", period="P7D"
                 )
                 if memory_measurements:
                     for measurement in memory_measurements.get("measurements", []):
                         metric_name = measurement.get("name")
-                        if metric_name in ["PROCESS_VIRTUAL_MEMORY", "PROCESS_RESIDENT_MEMORY"]:
+                        if metric_name == "SYSTEM_MEMORY_USED":
                             stats = self.calculate_metric_stats_from_single(measurement)
                             if stats["max"] is not None:
                                 # Convert bytes to GB
@@ -217,25 +299,65 @@ class AtlasMetadataCollector:
                                 metadata["memory_avg_week"] = round(stats["avg"] / (1024**3), 2)
                                 break
                 
-                # Try DISK metrics
+                # Collect DISK and DATABASE_SIZE metrics
                 disk_measurements = self.client.get_process_measurements(
                     project_id, process_id, "DISK", granularity="PT1H", period="P7D"
                 )
                 if disk_measurements:
                     for measurement in disk_measurements.get("measurements", []):
                         metric_name = measurement.get("name")
-                        if "DISK" in metric_name and "USAGE" in metric_name:
+                        if metric_name == "DB_STORAGE_TOTAL":
                             stats = self.calculate_metric_stats_from_single(measurement)
                             if stats["max"] is not None:
                                 # Convert bytes to GB
                                 metadata["disk_usage_max_gb"] = round(stats["max"] / (1024**3), 2)
                                 break
                 
-                # Try DATABASE_OPERATIONS metrics
+                # Try DATABASE_SIZE for DB_DATA_SIZE_TOTAL
+                db_size_measurements = self.client.get_process_measurements(
+                    project_id, process_id, "DATABASE_SIZE", granularity="PT1H", period="P7D"
+                )
+                if db_size_measurements:
+                    for measurement in db_size_measurements.get("measurements", []):
+                        metric_name = measurement.get("name")
+                        if metric_name == "DB_DATA_SIZE_TOTAL":
+                            stats = self.calculate_metric_stats_from_single(measurement)
+                            if stats["max"] is not None:
+                                # Convert bytes to GB
+                                if metadata.get("disk_usage_max_gb") is None:
+                                    metadata["disk_usage_max_gb"] = round(stats["max"] / (1024**3), 2)
+                                break
+                
+                # Collect IOPS metrics from v2 disk API
+                try:
+                    disks = self.client.get_disks(project_id, process_id)
+                    if disks:
+                        # Use the first disk partition
+                        disk = disks[0]
+                        partition_name = disk.get("partitionName")
+                        if partition_name:
+                            print(f"      Fetching IOPS from disk {partition_name}...")
+                            iops_measurements = self.client.get_disk_measurements(
+                                project_id, process_id, partition_name, granularity="PT1H", period="P7D"
+                            )
+                            if iops_measurements:
+                                for measurement in iops_measurements.get("measurements", []):
+                                    metric_name = measurement.get("name")
+                                    if metric_name == "DISK_PARTITION_IOPS_TOTAL":
+                                        stats = self.calculate_metric_stats_from_single(measurement)
+                                        if stats["max"] is not None:
+                                            metadata["iops_max_week"] = stats["max"]
+                                            metadata["iops_avg_week"] = stats["avg"]
+                                            break
+                except Exception as e:
+                    print(f"      Could not fetch IOPS metrics: {str(e)[:100]}")
+                
+                # Try DATABASE_OPERATIONS metrics for connections and operations
                 op_measurements = self.client.get_process_measurements(
                     project_id, process_id, "DATABASE_OPERATIONS", granularity="PT1H", period="P7D"
                 )
                 if op_measurements:
+                    # Connections
                     for measurement in op_measurements.get("measurements", []):
                         metric_name = measurement.get("name")
                         if metric_name == "CONNECTIONS":
@@ -244,6 +366,21 @@ class AtlasMetadataCollector:
                                 metadata["connections_max_week"] = stats["max"]
                                 metadata["connections_avg_week"] = stats["avg"]
                                 break
+                    
+                    # Operations - sum multiple metrics
+                    op_metric_names = [
+                        "OPCOUNTER_CMD", "OPCOUNTER_DELETE", "OPCOUNTER_TTL_DELETED",
+                        "OPCOUNTER_GETMORE", "OPCOUNTER_INSERT", "OPCOUNTER_QUERY", "OPCOUNTER_UPDATE"
+                    ]
+                    op_metrics_to_sum = [
+                        m for m in op_measurements.get("measurements", [])
+                        if m.get("name") in op_metric_names
+                    ]
+                    if op_metrics_to_sum:
+                        stats = self.calculate_metric_stats_from_multiple(op_metrics_to_sum)
+                        if stats["max"] is not None:
+                            metadata["operations_max_week"] = stats["max"]
+                            metadata["operations_avg_week"] = stats["avg"]
             
         except Exception as e:
             print(f"      Metrics not available: {str(e)[:100]}")
@@ -421,4 +558,5 @@ Environment variables:
 
 if __name__ == "__main__":
     main()
+
 

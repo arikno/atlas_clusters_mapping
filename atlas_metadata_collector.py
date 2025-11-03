@@ -259,19 +259,65 @@ class AtlasMetadataCollector:
             processes = self.client.get_processes(project_id)
             
             if processes:
-                # Try to find the primary process, otherwise use the first one
-                primary_process = None
+                # Match processes to this cluster using mongoURI and userAlias
+                cluster_processes = []
+                mongo_uri = cluster.get("mongoURI", "")
+                
+                # Extract hostnames from mongoURI
+                uri_hostnames = set()
+                if mongo_uri:
+                    for uri_part in mongo_uri.split(","):
+                        if "://" in uri_part:
+                            uri_part = uri_part.split("://")[1]
+                        if "/?" in uri_part:
+                            uri_part = uri_part.split("/?")[0]
+                        if ":" in uri_part:
+                            uri_hostname = uri_part.split(":")[0]
+                            uri_hostnames.add(uri_hostname)
+                
+                # Match processes whose hostnames or userAlias appear in the URI
                 for p in processes:
+                    hostname = p.get("hostname", "")
+                    user_alias = p.get("userAlias", "")
+                    # Try multiple matching strategies
+                    if hostname in uri_hostnames:
+                        cluster_processes.append(p)
+                        continue
+                    if user_alias and user_alias in uri_hostnames:
+                        cluster_processes.append(p)
+                        continue
+                
+                # If no matches, use cluster name pattern matching
+                if not cluster_processes:
+                    cluster_name = cluster.get("name", "")
+                    for p in processes:
+                        hostname = p.get("hostname", "")
+                        if cluster_name.lower().replace("-", "").replace("_", "") in hostname.lower().replace("-", "").replace("_", ""):
+                            cluster_processes.append(p)
+                
+                # Try to find the primary process
+                primary_process = None
+                for p in cluster_processes:
                     if p.get("typeName") == "REPLICA_PRIMARY":
                         primary_process = p
                         break
                 
+                if not primary_process and cluster_processes:
+                    primary_process = cluster_processes[0]
+                
                 if not primary_process:
+                    # Fallback to any primary in the project
+                    for p in processes:
+                        if p.get("typeName") == "REPLICA_PRIMARY":
+                            primary_process = p
+                            break
+                
+                if not primary_process and processes:
                     primary_process = processes[0]
                 
                 process_id = primary_process["id"]
                 process_type = primary_process.get("typeName", "UNKNOWN")
-                print(f"      Using process: {process_id} ({process_type})")
+                print(f"      Using process: {primary_process.get('hostname')} ({process_type})")
                 
                 # Collect CPU metrics - sum multiple metrics
                 cpu_measurements = self.client.get_process_measurements(

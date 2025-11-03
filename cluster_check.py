@@ -232,6 +232,7 @@ class AtlasClusterChecker:
                     primary_process = processes[0]
                 
                 process_id = primary_process["id"]
+                print(f"  Using process: {primary_process.get('hostname')} ({primary_process.get('typeName')})")
                 
                 # Collect CPU metrics - sum multiple metrics
                 cpu_measurements = self.get_process_measurements(

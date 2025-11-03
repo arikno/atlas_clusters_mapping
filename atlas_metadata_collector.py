@@ -183,6 +183,59 @@ class AtlasMetadataCollector:
         
         return {"max": round(max_val, 2), "avg": round(avg_val, 2), "data_point_count": len(sums)}
     
+    def load_tier_specs(self) -> Dict:
+        """Load tier specifications from CSV file"""
+        tier_specs = {}
+        try:
+            with open('atlas tiers aws - sheet1.csv', 'r') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    # First column is the tier name (no header name)
+                    tier_name = None
+                    for key, value in row.items():
+                        if key.strip() == '':
+                            tier_name = value.strip()
+                            break
+                    if tier_name:
+                        tier_specs[tier_name] = {
+                            'cpu': float(row.get('cpu', 0)),
+                            'ram': float(row.get('ram', 0)),
+                            'connection': float(row.get('connection', 0)),
+                            'iops': float(row.get('iops', 0))
+                        }
+        except FileNotFoundError:
+            print("Warning: tier specs file not found")
+        return tier_specs
+    
+    def calculate_usage_flags(self, metadata: Dict, tier_specs: Dict) -> Dict:
+        """Calculate low usage flags based on tier specifications"""
+        tier = metadata.get("tier")
+        if not tier or tier not in tier_specs:
+            return metadata
+        
+        spec = tier_specs[tier]
+        
+        # Calculate memory usage percentage
+        memory_avg = metadata.get("memory_avg_gb")
+        ram_limit = spec.get("ram")
+        if memory_avg is not None and ram_limit:
+            memory_usage_percent = (memory_avg / ram_limit) * 100
+            metadata["low_memory_use"] = True if memory_usage_percent < 40 else None
+        
+        # Calculate IOPS usage percentage
+        iops_avg = metadata.get("iops_avg_week")
+        iops_limit = spec.get("iops")
+        if iops_avg is not None and iops_limit:
+            iops_usage_percent = (iops_avg / iops_limit) * 100
+            metadata["low_iops_use"] = True if iops_usage_percent < 40 else None
+        
+        # Calculate CPU usage percentage
+        cpu_avg = metadata.get("cpu_avg_percent")
+        if cpu_avg is not None:
+            metadata["low_cpu_use"] = True if cpu_avg < 40 else None
+        
+        return metadata
+    
     def collect_cluster_metadata(self, project_id: str, cluster: Dict) -> Dict:
         """Collect metadata for a single cluster"""
         cluster_name = cluster["name"]
@@ -251,6 +304,9 @@ class AtlasMetadataCollector:
             "write_ops_avg_week": None,
             "disk_usage_max_gb": None,
             "disk_available_max_gb": None,
+            "low_memory_use": None,
+            "low_iops_use": None,
+            "low_cpu_use": None,
         })
         
         # Try to fetch metrics if available
@@ -460,6 +516,10 @@ class AtlasMetadataCollector:
                 metadata["disk_size_gb"] - metadata["disk_usage_max_gb"], 2
             )
         
+        # Calculate usage flags
+        tier_specs = self.load_tier_specs()
+        metadata = self.calculate_usage_flags(metadata, tier_specs)
+        
         return metadata
     
     def collect_all_metadata(self) -> Dict:
@@ -573,7 +633,8 @@ Environment variables:
                     'cpu_max_percent', 'cpu_avg_percent', 'memory_max_gb', 'memory_avg_gb',
                     'iops_max_week', 'iops_avg_week', 'connections_max_week', 'connections_avg_week',
                     'read_ops_max_week', 'read_ops_avg_week', 'write_ops_max_week', 'write_ops_avg_week',
-                    'disk_usage_max_gb', 'disk_available_max_gb'
+                    'disk_usage_max_gb', 'disk_available_max_gb',
+                    'low_cpu_use', 'low_memory_use', 'low_iops_use'
                 ])
                 
                 # Write cluster data
@@ -609,7 +670,10 @@ Environment variables:
                             cluster.get("write_ops_max_week"),
                             cluster.get("write_ops_avg_week"),
                             cluster.get("disk_usage_max_gb"),
-                            cluster.get("disk_available_max_gb")
+                            cluster.get("disk_available_max_gb"),
+                            cluster.get("low_cpu_use"),
+                            cluster.get("low_memory_use"),
+                            cluster.get("low_iops_use")
                         ])
         else:
             # Default to JSON if extension is not recognized

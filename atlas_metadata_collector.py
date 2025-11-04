@@ -19,8 +19,8 @@ import csv
 import json
 import os
 import sys
-from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from datetime import datetime, timezone, time
+from typing import Dict, List, Optional, Tuple
 import requests
 from dotenv import load_dotenv
 
@@ -126,16 +126,44 @@ class AtlasAPIClient:
 class AtlasMetadataCollector:
     """Collects comprehensive metadata from MongoDB Atlas"""
     
-    def __init__(self, public_key: str, private_key: str, org_id: str):
+    def __init__(self, public_key: str, private_key: str, org_id: str, time_filter: Optional[Tuple[str, str]] = None, tier_limits_file: str = "tier_limits.csv"):
         self.client = AtlasAPIClient(public_key, private_key, org_id)
+        self.time_filter = time_filter
+        self.tier_limits_file = tier_limits_file
     
+    def _is_within_time_filter(self, timestamp: str) -> bool:
+        """Check if a timestamp is within the configured time filter"""
+        if not self.time_filter:
+            return True
+        
+        try:
+            # Parse timestamp (ISO format: 2023-10-01T14:30:00Z)
+            dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            # Convert to UTC time
+            time_of_day = dt.time()
+            
+            # Parse start and end times
+            start_time = time.fromisoformat(self.time_filter[0])
+            end_time = time.fromisoformat(self.time_filter[1])
+            
+            # Handle time ranges that cross midnight
+            if start_time <= end_time:
+                return start_time <= time_of_day <= end_time
+            else:
+                return time_of_day >= start_time or time_of_day <= end_time
+        except (ValueError, TypeError):
+            # If we can't parse the timestamp, include it
+            return True
+
     def calculate_metric_stats_from_single(self, measurement: Dict) -> Dict[str, float]:
         """Calculate max and avg for a single measurement object"""
         data_points = []
         
         for datapoint in measurement.get("dataPoints", []):
             if datapoint.get("value") is not None:
-                data_points.append(datapoint["value"])
+                # Apply time filter if configured
+                if self._is_within_time_filter(datapoint.get("timestamp", "")):
+                    data_points.append(datapoint["value"])
         
         if not data_points:
             return {"max": None, "avg": None, "data_point_count": 0}
@@ -155,12 +183,13 @@ class AtlasMetadataCollector:
         Returns:
             Dictionary with max, avg, and data_point_count
         """
-        # Collect all timestamps
+        # Collect all timestamps that pass the time filter
         all_timestamps = set()
         for measurement in measurements:
             for datapoint in measurement.get("dataPoints", []):
-                if datapoint.get("timestamp"):
-                    all_timestamps.add(datapoint["timestamp"])
+                timestamp = datapoint.get("timestamp")
+                if timestamp and self._is_within_time_filter(timestamp):
+                    all_timestamps.add(timestamp)
         
         if not all_timestamps:
             return {"max": None, "avg": None, "data_point_count": 0}
@@ -207,20 +236,49 @@ class AtlasMetadataCollector:
             print("Warning: tier specs file not found")
         return tier_specs
     
+    def load_tier_limits(self) -> Dict[str, float]:
+        """Load configurable tier limits from CSV file"""
+        tier_limits = {
+            'cpu': 40.0,
+            'memory': 40.0,
+            'iops': 40.0,
+            'connections': 80.0,
+            'disk': 85.0
+        }
+        
+        try:
+            with open(self.tier_limits_file, 'r') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    metric = row.get('metric', '').strip()
+                    threshold = row.get('low_usage_threshold', '').strip()
+                    if metric and threshold:
+                        try:
+                            tier_limits[metric] = float(threshold)
+                        except ValueError:
+                            print(f"Warning: Invalid threshold value '{threshold}' for metric '{metric}'")
+        except FileNotFoundError:
+            print(f"Warning: Tier limits file '{self.tier_limits_file}' not found, using defaults")
+        except Exception as e:
+            print(f"Warning: Error reading tier limits file: {e}")
+        
+        return tier_limits
+
     def calculate_usage_flags(self, metadata: Dict, tier_specs: Dict) -> Dict:
-        """Calculate low usage flags based on tier specifications"""
+        """Calculate low usage flags based on tier specifications and configurable limits"""
         tier = metadata.get("tier")
         if not tier or tier not in tier_specs:
             return metadata
         
         spec = tier_specs[tier]
+        limits = self.load_tier_limits()
         
         # Calculate memory usage percentage
         memory_avg = metadata.get("memory_avg_gb")
         ram_limit = spec.get("ram")
         if memory_avg is not None and ram_limit:
             memory_usage_percent = (memory_avg / ram_limit) * 100
-            metadata["low_memory_use"] = True if memory_usage_percent < 40 else None
+            metadata["low_memory_use"] = True if memory_usage_percent < limits.get('memory', 40) else None
             metadata["memory_tier_limit_gb"] = ram_limit
         
         # Calculate IOPS usage percentage
@@ -228,14 +286,14 @@ class AtlasMetadataCollector:
         iops_limit = spec.get("iops")
         if iops_avg is not None and iops_limit:
             iops_usage_percent = (iops_avg / iops_limit) * 100
-            metadata["low_iops_use"] = True if iops_usage_percent < 40 else None
+            metadata["low_iops_use"] = True if iops_usage_percent < limits.get('iops', 40) else None
             metadata["iops_tier_limit"] = iops_limit
         
         # Calculate CPU usage percentage
         cpu_avg = metadata.get("cpu_avg_percent")
         cpu_limit = spec.get("cpu")
         if cpu_avg is not None:
-            metadata["low_cpu_use"] = True if cpu_avg < 40 else None
+            metadata["low_cpu_use"] = True if cpu_avg < limits.get('cpu', 40) else None
             metadata["cpu_tier_limit"] = cpu_limit
         
         return metadata
@@ -585,6 +643,14 @@ Examples:
                                      --public-key my-public-key \\
                                      --private-key my-private-key \\
                                      --output results.json
+                                     
+  # Filter metrics to business hours only (2 PM to 11:59 PM)
+  python atlas_metadata_collector.py --org-id 507f1f77bcf86cd799439011 \\
+                                     --public-key my-public-key \\
+                                     --private-key my-private-key \\
+                                     --time-filter-start 14:00 \\
+                                     --time-filter-end 23:59 \\
+                                     --output results.csv
 
 Environment variables:
   ATLAS_PUBLIC_KEY    MongoDB Atlas public API key
@@ -598,6 +664,9 @@ Environment variables:
     parser.add_argument("--private-key", type=str, default=os.getenv("ATLAS_PRIVATE_KEY"))
     parser.add_argument("--output", type=str, default="atlas_metadata.json")
     parser.add_argument("--pretty", action="store_true")
+    parser.add_argument("--time-filter-start", type=str, help="Start time for filtering metrics (HH:MM format, e.g., 14:00)")
+    parser.add_argument("--time-filter-end", type=str, help="End time for filtering metrics (HH:MM format, e.g., 23:59)")
+    parser.add_argument("--tier-limits-file", type=str, default="tier_limits.csv", help="Path to tier limits configuration file")
     
     args = parser.parse_args()
     
@@ -611,8 +680,31 @@ Environment variables:
         print("Error: --private-key is required")
         sys.exit(1)
     
+    # Validate time filter arguments
+    time_filter = None
+    if args.time_filter_start or args.time_filter_end:
+        if not (args.time_filter_start and args.time_filter_end):
+            print("Error: Both --time-filter-start and --time-filter-end must be provided together")
+            sys.exit(1)
+        
+        # Validate time format
+        try:
+            time.fromisoformat(args.time_filter_start)
+            time.fromisoformat(args.time_filter_end)
+            time_filter = (args.time_filter_start, args.time_filter_end)
+            print(f"Time filter enabled: {args.time_filter_start} - {args.time_filter_end}")
+        except ValueError:
+            print("Error: Time filter values must be in HH:MM format (e.g., 14:00)")
+            sys.exit(1)
+    
     try:
-        collector = AtlasMetadataCollector(args.public_key, args.private_key, args.org_id)
+        collector = AtlasMetadataCollector(
+            args.public_key, 
+            args.private_key, 
+            args.org_id, 
+            time_filter=time_filter,
+            tier_limits_file=args.tier_limits_file
+        )
         results = collector.collect_all_metadata()
         
         # Detect output format based on file extension

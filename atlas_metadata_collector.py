@@ -295,7 +295,23 @@ class AtlasMetadataCollector:
         if cpu_avg is not None:
             metadata["low_cpu_use"] = True if cpu_avg < limits.get('cpu', 40) else None
             metadata["cpu_tier_limit"] = cpu_limit
-        
+
+        # Calculate Connections usage percentage
+        connections_avg = metadata.get("connections_avg")
+        connections_limit = spec.get("connections")
+        if connections_avg is not None and connections_limit:
+            connections_usage_percent = (connections_avg / connections_limit) * 100
+            metadata["low_connections_use"] = True if connections_usage_percent < limits.get('connections', 40) else None
+            metadata["connections_tier_limit"] = connections_limit
+
+        # Calculate Disk usage percentage
+        disk_avg = metadata.get("disk_avg_gb")
+        disk_limit = spec.get("disk")
+        if disk_avg is not None and disk_limit:
+            disk_usage_percent = (disk_avg / disk_limit) * 100
+            metadata["low_disk_use"] = True if disk_usage_percent < limits.get('disk', 40) else None
+            metadata["disk_tier_limit_gb"] = disk_limit
+
         return metadata
     
     def collect_cluster_metadata(self, project_id: str, cluster: Dict) -> Dict:

@@ -60,10 +60,10 @@ The scripts calculate low usage flags based on tier specifications loaded from `
 ### Flag Calculations
 
 - **`low_iops_use`**: `true` if `iops_avg < 0.75 * iops_tier_limit`
-  - Compares average IOPS usage against 75% of the tier's IOPS limit
+  - Compares average IOPS usage against 75% of compare tier's IOPS limit
   
 - **`low_memory_use`**: `true` if `memory_max_gb < memory_tier_limit_gb * 0.75`
-  - Compares maximum memory usage against 75% of the tier's RAM limit
+  - Compares maximum memory usage against 75% of compare tier's RAM limit
   
 - **`low_cpu_use`**: `true` if `cpu_avg_percent < 37`
   - Flags clusters with average CPU usage below 37%
@@ -85,5 +85,5 @@ Tier limits (CPU, RAM, IOPS) are loaded from `atlas_aws.csv`, which contains tie
 
 ## License
 
-This script is provided as-is for collecting MongoDB Atlas metadata.
+This script is provided as-is for collecting MongoDB Atlas metadata. It is not supported by MongoDB, Inc. under any of their commercial support subscriptions or otherwise. Any usage of keythe script is at your own risk.
 

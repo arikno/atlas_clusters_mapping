@@ -229,21 +229,22 @@ class AtlasMetadataCollector:
                         tier_specs[tier_name] = {
                             'cpu': float(row.get('cpu', 0)),
                             'ram': float(row.get('ram', 0)),
-                            'connection': float(row.get('connection', 0)),
-                            'iops': float(row.get('iops', 0))
+                            'connections': float(row.get('connections', 0)),
+                            'iops': float(row.get('iops', 0)),
+                            'sort': int(row.get('sort', 999))
                         }
         except FileNotFoundError:
             print("Warning: tier specs file not found")
         return tier_specs
     
-    def load_tier_limits(self) -> Dict[str, float]:
+    def load_tier_limits(self) -> Dict[str, Dict[str, float]]:
         """Load configurable tier limits from CSV file"""
         tier_limits = {
-            'cpu': 40.0,
-            'memory': 40.0,
-            'iops': 40.0,
-            'connections': 80.0,
-            'disk': 85.0
+            'cpu': {'low_usage': 40.0, 'lower_tier': 80.0},
+            'memory': {'low_usage': 40.0, 'lower_tier': 80.0},
+            'iops': {'low_usage': 40.0, 'lower_tier': 80.0},
+            'connections': {'low_usage': 80.0, 'lower_tier': 80.0},
+            'disk': {'low_usage': 85.0, 'lower_tier': 80.0}
         }
         
         try:
@@ -251,18 +252,48 @@ class AtlasMetadataCollector:
                 reader = csv.DictReader(f)
                 for row in reader:
                     metric = row.get('metric', '').strip()
-                    threshold = row.get('low_usage_threshold', '').strip()
-                    if metric and threshold:
-                        try:
-                            tier_limits[metric] = float(threshold)
-                        except ValueError:
-                            print(f"Warning: Invalid threshold value '{threshold}' for metric '{metric}'")
+                    low_threshold = row.get('low_usage_threshold', '').strip()
+                    lower_tier_threshold = row.get('lower_tier_threshold', '').strip()
+                    
+                    if metric:
+                        if metric not in tier_limits:
+                            tier_limits[metric] = {'low_usage': 40.0, 'lower_tier': 80.0}
+                        
+                        if low_threshold:
+                            try:
+                                tier_limits[metric]['low_usage'] = float(low_threshold)
+                            except ValueError:
+                                print(f"Warning: Invalid low_usage_threshold value '{low_threshold}' for metric '{metric}'")
+                        
+                        if lower_tier_threshold:
+                            try:
+                                tier_limits[metric]['lower_tier'] = float(lower_tier_threshold)
+                            except ValueError:
+                                print(f"Warning: Invalid lower_tier_threshold value '{lower_tier_threshold}' for metric '{metric}'")
         except FileNotFoundError:
             print(f"Warning: Tier limits file '{self.tier_limits_file}' not found, using defaults")
         except Exception as e:
             print(f"Warning: Error reading tier limits file: {e}")
         
         return tier_limits
+
+    def find_lower_tier(self, current_tier: str, tier_specs: Dict) -> Optional[Dict]:
+        """Find the next lower tier based on sort order"""
+        if current_tier not in tier_specs:
+            return None
+        
+        current_sort = tier_specs[current_tier]['sort']
+        lower_tier = None
+        lower_sort = 0
+        
+        # Find the tier with the highest sort value that's still lower than current
+        for tier_name, spec in tier_specs.items():
+            tier_sort = spec['sort']
+            if tier_sort < current_sort and tier_sort > lower_sort:
+                lower_tier = tier_name
+                lower_sort = tier_sort
+        
+        return tier_specs.get(lower_tier) if lower_tier else None
 
     def calculate_usage_flags(self, metadata: Dict, tier_specs: Dict) -> Dict:
         """Calculate low usage flags based on tier specifications and configurable limits"""
@@ -272,45 +303,96 @@ class AtlasMetadataCollector:
         
         spec = tier_specs[tier]
         limits = self.load_tier_limits()
+        lower_spec = self.find_lower_tier(tier, tier_specs)
         
         # Calculate memory usage percentage
         memory_avg = metadata.get("memory_avg_gb")
         ram_limit = spec.get("ram")
         if memory_avg is not None and ram_limit:
             memory_usage_percent = (memory_avg / ram_limit) * 100
-            metadata["low_memory_use"] = True if memory_usage_percent < limits.get('memory', 40) else None
+            metadata["low_memory_use"] = True if memory_usage_percent < limits['memory']['low_usage'] else None
             metadata["memory_tier_limit_gb"] = ram_limit
+            
+            # Lower tier calculations
+            if lower_spec:
+                lower_ram_limit = lower_spec.get("ram")
+                metadata["memory_lower_tier_limit_gb"] = lower_ram_limit
+                if lower_ram_limit:
+                    lower_memory_usage_percent = (memory_avg / lower_ram_limit) * 100
+                    metadata["memory_lower_tier_acceptable_use"] = True if lower_memory_usage_percent < limits['memory']['lower_tier'] else None
+            else:
+                metadata["memory_lower_tier_limit_gb"] = None
+                metadata["memory_lower_tier_acceptable_use"] = None
         
         # Calculate IOPS usage percentage
         iops_avg = metadata.get("iops_avg")
         iops_limit = spec.get("iops")
         if iops_avg is not None and iops_limit:
             iops_usage_percent = (iops_avg / iops_limit) * 100
-            metadata["low_iops_use"] = True if iops_usage_percent < limits.get('iops', 40) else None
+            metadata["low_iops_use"] = True if iops_usage_percent < limits['iops']['low_usage'] else None
             metadata["iops_tier_limit"] = iops_limit
+            
+            # Lower tier calculations
+            if lower_spec:
+                lower_iops_limit = lower_spec.get("iops")
+                metadata["iops_lower_tier_limit"] = lower_iops_limit
+                if lower_iops_limit:
+                    lower_iops_usage_percent = (iops_avg / lower_iops_limit) * 100
+                    metadata["iops_lower_tier_acceptable_use"] = True if lower_iops_usage_percent < limits['iops']['lower_tier'] else None
+            else:
+                metadata["iops_lower_tier_limit"] = None
+                metadata["iops_lower_tier_acceptable_use"] = None
         
         # Calculate CPU usage percentage
         cpu_avg = metadata.get("cpu_avg_percent")
         cpu_limit = spec.get("cpu")
         if cpu_avg is not None:
-            metadata["low_cpu_use"] = True if cpu_avg < limits.get('cpu', 40) else None
+            metadata["low_cpu_use"] = True if cpu_avg < limits['cpu']['low_usage'] else None
             metadata["cpu_tier_limit"] = cpu_limit
+            
+            # Lower tier calculations
+            if lower_spec:
+                lower_cpu_limit = lower_spec.get("cpu")
+                metadata["cpu_lower_tier_limit"] = lower_cpu_limit
+                if lower_cpu_limit and cpu_limit:
+                    # For CPU, we compare against the lower tier's capacity
+                    lower_cpu_usage_percent = (cpu_avg / cpu_limit) * 100  # Still use current usage
+                    metadata["cpu_lower_tier_acceptable_use"] = True if lower_cpu_usage_percent < limits['cpu']['lower_tier'] else None
+            else:
+                metadata["cpu_lower_tier_limit"] = None
+                metadata["cpu_lower_tier_acceptable_use"] = None
 
         # Calculate Connections usage percentage
         connections_avg = metadata.get("connections_avg")
         connections_limit = spec.get("connections")
         if connections_avg is not None and connections_limit:
             connections_usage_percent = (connections_avg / connections_limit) * 100
-            metadata["low_connections_use"] = True if connections_usage_percent < limits.get('connections', 40) else None
+            metadata["low_connections_use"] = True if connections_usage_percent < limits['connections']['low_usage'] else None
             metadata["connections_tier_limit"] = connections_limit
+            
+            # Lower tier calculations
+            if lower_spec:
+                lower_connections_limit = lower_spec.get("connections")
+                metadata["connections_lower_tier_limit"] = lower_connections_limit
+                if lower_connections_limit:
+                    lower_connections_usage_percent = (connections_avg / lower_connections_limit) * 100
+                    metadata["connections_lower_tier_acceptable_use"] = True if lower_connections_usage_percent < limits['connections']['lower_tier'] else None
+            else:
+                metadata["connections_lower_tier_limit"] = None
+                metadata["connections_lower_tier_acceptable_use"] = None
 
-        # Calculate Disk usage percentage
-        disk_avg = metadata.get("disk_avg_gb")
-        disk_limit = spec.get("disk")
-        if disk_avg is not None and disk_limit:
-            disk_usage_percent = (disk_avg / disk_limit) * 100
-            metadata["low_disk_use"] = True if disk_usage_percent < limits.get('disk', 40) else None
-            metadata["disk_tier_limit_gb"] = disk_limit
+        # Calculate Disk usage percentage (using disk_usage_max_gb vs disk_size_gb)
+        disk_usage_gb = metadata.get("disk_usage_max_gb")
+        disk_size_gb = metadata.get("disk_size_gb")
+        if disk_usage_gb is not None and disk_size_gb:
+            disk_usage_percent = (disk_usage_gb / disk_size_gb) * 100
+            metadata["low_disk_use"] = True if disk_usage_percent < limits['disk']['low_usage'] else None
+            metadata["disk_tier_limit_gb"] = disk_size_gb
+            
+            # For disk, lower tier calculation is conceptual - we don't have lower disk sizes
+            # So we'll set these to None for now
+            metadata["disk_lower_tier_limit_gb"] = None
+            metadata["disk_lower_tier_acceptable_use"] = None
 
         return metadata
     
@@ -385,9 +467,23 @@ class AtlasMetadataCollector:
             "low_memory_use": None,
             "low_iops_use": None,
             "low_cpu_use": None,
+            "low_connections_use": None,
+            "low_disk_use": None,
             "cpu_tier_limit": None,
             "memory_tier_limit_gb": None,
             "iops_tier_limit": None,
+            "connections_tier_limit": None,
+            "disk_tier_limit_gb": None,
+            "cpu_lower_tier_limit": None,
+            "memory_lower_tier_limit_gb": None,
+            "iops_lower_tier_limit": None,
+            "connections_lower_tier_limit": None,
+            "disk_lower_tier_limit_gb": None,
+            "cpu_lower_tier_acceptable_use": None,
+            "memory_lower_tier_acceptable_use": None,
+            "iops_lower_tier_acceptable_use": None,
+            "connections_lower_tier_acceptable_use": None,
+            "disk_lower_tier_acceptable_use": None,
         })
         
         # Try to fetch metrics if available
@@ -451,6 +547,10 @@ class AtlasMetadataCollector:
                 
                 if not primary_process and processes:
                     primary_process = processes[0]
+                
+                if not primary_process:
+                    print("      No processes found for metrics collection")
+                    return metadata
                 
                 process_id = primary_process["id"]
                 process_type = primary_process.get("typeName", "UNKNOWN")
@@ -592,10 +692,10 @@ class AtlasMetadataCollector:
             print(f"      Metrics not available: {str(e)[:100]}")
         
         # Calculate disk available if we have both values
-        if metadata.get("disk_size_gb") and metadata.get("disk_usage_max_gb"):
-            metadata["disk_available_max_gb"] = round(
-                metadata["disk_size_gb"] - metadata["disk_usage_max_gb"], 2
-            )
+        disk_size = metadata.get("disk_size_gb")
+        disk_usage = metadata.get("disk_usage_max_gb")
+        if disk_size is not None and disk_usage is not None:
+            metadata["disk_available_max_gb"] = round(disk_size - disk_usage, 2)
         
         # Calculate usage flags
         tier_specs = self.load_tier_specs()
@@ -749,8 +849,10 @@ Environment variables:
                     'iops_max', 'iops_avg', 'connections_max', 'connections_avg',
                     'read_ops_max', 'read_ops_avg', 'write_ops_max', 'write_ops_avg',
                     'disk_usage_max_gb', 'disk_available_max_gb',
-                    'cpu_tier_limit', 'memory_tier_limit_gb', 'iops_tier_limit',
-                    'low_cpu_use', 'low_memory_use', 'low_iops_use'
+                    'cpu_tier_limit', 'memory_tier_limit_gb', 'iops_tier_limit', 'connections_tier_limit', 'disk_tier_limit_gb',
+                    'cpu_lower_tier_limit', 'memory_lower_tier_limit_gb', 'iops_lower_tier_limit', 'connections_lower_tier_limit', 'disk_lower_tier_limit_gb',
+                    'low_cpu_use', 'low_memory_use', 'low_iops_use', 'low_connections_use', 'low_disk_use',
+                    'cpu_lower_tier_acceptable_use', 'memory_lower_tier_acceptable_use', 'iops_lower_tier_acceptable_use', 'connections_lower_tier_acceptable_use', 'disk_lower_tier_acceptable_use'
                 ])
                 
                 # Write cluster data
@@ -790,9 +892,23 @@ Environment variables:
                             cluster.get("cpu_tier_limit"),
                             cluster.get("memory_tier_limit_gb"),
                             cluster.get("iops_tier_limit"),
+                            cluster.get("connections_tier_limit"),
+                            cluster.get("disk_tier_limit_gb"),
+                            cluster.get("cpu_lower_tier_limit"),
+                            cluster.get("memory_lower_tier_limit_gb"),
+                            cluster.get("iops_lower_tier_limit"),
+                            cluster.get("connections_lower_tier_limit"),
+                            cluster.get("disk_lower_tier_limit_gb"),
                             cluster.get("low_cpu_use"),
                             cluster.get("low_memory_use"),
-                            cluster.get("low_iops_use")
+                            cluster.get("low_iops_use"),
+                            cluster.get("low_connections_use"),
+                            cluster.get("low_disk_use"),
+                            cluster.get("cpu_lower_tier_acceptable_use"),
+                            cluster.get("memory_lower_tier_acceptable_use"),
+                            cluster.get("iops_lower_tier_acceptable_use"),
+                            cluster.get("connections_lower_tier_acceptable_use"),
+                            cluster.get("disk_lower_tier_acceptable_use")
                         ])
         else:
             # Default to JSON if extension is not recognized

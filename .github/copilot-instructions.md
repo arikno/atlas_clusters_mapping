@@ -81,7 +81,7 @@ Usage flags: `low_cpu_use`, `low_memory_use`, `low_iops_use` (set to `True` or `
 The `atlas_aws.csv` file contains MongoDB tier specifications (CPU cores, RAM GB, max connections, IOPS limits) used for usage analysis. Keep this synchronized with Atlas pricing.
 
 ### Usage Threshold Configuration
-The `tier_limits.csv` file defines low-usage thresholds for different metrics. Format: `metric,low_usage_threshold` with metrics: cpu, memory, iops, connections, disk.
+The `tier_limits.csv` file defines low-usage thresholds for different metrics. Format: `metric,low_usage_threshold,lower_tier_threshold` with metrics: cpu, memory, iops, connections, disk. The `atlas_aws.csv` includes a `sort` column for tier hierarchy.
 
 ## Common Extension Points
 
@@ -97,4 +97,7 @@ The current logic handles `providerSettings` from Atlas API. GCP/Azure clusters 
 Use `--time-filter-start` and `--time-filter-end` parameters to collect metrics only during specific hours of the day. Useful for analyzing usage during business hours or peak traffic periods.
 
 ### Custom Usage Thresholds
-Configure low-usage thresholds via `tier_limits.csv` file with columns: `metric`, `low_usage_threshold`. Default thresholds: CPU 40%, Memory 40%, IOPS 40%, Connections 80%, Disk 85%.
+Configure low-usage thresholds via `tier_limits.csv` file with columns: `metric`, `low_usage_threshold`, `lower_tier_threshold`. Default thresholds: CPU 40%/80%, Memory 40%/80%, IOPS 40%/80%, Connections 80%/80%, Disk 85%/80%.
+
+### Lower Tier Analysis
+The system calculates whether workloads could run on the next lower MongoDB Atlas tier. Uses `sort` column in `atlas_aws.csv` to determine tier hierarchy and compares current usage against lower tier limits.

@@ -9,15 +9,20 @@ Requirements:
     pip install requests python-dotenv
 
 Usage:
-    python cluster_check.py
+    python cluster_check.py --project-id YOUR_PROJECT_ID --public-key YOUR_PUBLIC_KEY --private-key YOUR_PRIVATE_KEY
 """
 
+import argparse
 import csv
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 class AtlasClusterChecker:
@@ -522,13 +527,40 @@ class AtlasClusterChecker:
 
 def main():
     """Main entry point"""
-    # Hardcoded credentials for this specific project
-    PUBLIC_KEY = "rsklcwxl"
-    PRIVATE_KEY = "5c618ca7-c7b6-4f76-9952-3f196e15d83c"
-    PROJECT_ID = "6807f16c3b67b24d31fb8bf2"
+    parser = argparse.ArgumentParser(
+        description="Check clusters in a MongoDB Atlas project with full metrics",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python cluster_check.py --project-id 507f1f77bcf86cd799439011 \\
+                         --public-key my-public-key \\
+                         --private-key my-private-key
+
+Environment variables:
+  ATLAS_PUBLIC_KEY    MongoDB Atlas public API key
+  ATLAS_PRIVATE_KEY   MongoDB Atlas private API key
+  ATLAS_PROJECT_ID    MongoDB Atlas project ID
+        """
+    )
+    
+    parser.add_argument("--project-id", type=str, default=os.getenv("ATLAS_PROJECT_ID"))
+    parser.add_argument("--public-key", type=str, default=os.getenv("ATLAS_PUBLIC_KEY"))
+    parser.add_argument("--private-key", type=str, default=os.getenv("ATLAS_PRIVATE_KEY"))
+    
+    args = parser.parse_args()
+    
+    if not args.project_id:
+        print("Error: --project-id is required")
+        sys.exit(1)
+    if not args.public_key:
+        print("Error: --public-key is required")
+        sys.exit(1)
+    if not args.private_key:
+        print("Error: --private-key is required")
+        sys.exit(1)
     
     try:
-        checker = AtlasClusterChecker(PUBLIC_KEY, PRIVATE_KEY, PROJECT_ID)
+        checker = AtlasClusterChecker(args.public_key, args.private_key, args.project_id)
         results = checker.check_clusters()
         
         # Save results to file

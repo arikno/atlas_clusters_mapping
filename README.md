@@ -1,6 +1,14 @@
 # MongoDB Atlas Metadata Collector
 
-This Python script collects cluster metadata from MongoDB Atlas for all projects in an organization.
+This repository contains Python scripts to collect and analyze cluster metadata from MongoDB Atlas.
+
+## Scripts
+
+### `atlas_metadata_collector.py`
+Collects cluster metadata from MongoDB Atlas for all projects in an organization.
+
+### `cluster_check.py`
+Checks clusters in a specific MongoDB Atlas project with full metrics collection (CPU, Memory, IOPS, Disk, Connections, Operations).
 
 ## Features
 
@@ -14,6 +22,7 @@ This Python script collects cluster metadata from MongoDB Atlas for all projects
   - Disk size
   - State
   - Created date
+  - Resource usage metrics (CPU, Memory, IOPS, Disk, Connections, Operations)
 
 ## Requirements
 
@@ -28,9 +37,24 @@ pip3 install -r requirements.txt
 
 ## Usage
 
-The script supports both JSON and CSV output formats:
+Both scripts support command-line arguments and environment variables for credentials.
 
-### JSON Output
+### Environment Variables
+
+You can set credentials using environment variables or a `.env` file:
+
+```bash
+export ATLAS_PUBLIC_KEY="your-public-key"
+export ATLAS_PRIVATE_KEY="your-private-key"
+export ATLAS_ORG_ID="your-org-id"
+export ATLAS_PROJECT_ID="your-project-id"
+```
+
+### atlas_metadata_collector.py
+
+Collects metadata from all projects in an organization. The script supports both JSON and CSV output formats:
+
+#### JSON Output
 
 ```bash
 python3 atlas_metadata_collector.py \
@@ -41,7 +65,7 @@ python3 atlas_metadata_collector.py \
   --pretty
 ```
 
-### CSV Output
+#### CSV Output
 
 ```bash
 python3 atlas_metadata_collector.py \
@@ -52,6 +76,23 @@ python3 atlas_metadata_collector.py \
 ```
 
 The output format is automatically detected by the file extension (`.json` or `.csv`).
+
+### cluster_check.py
+
+Checks clusters in a specific project and outputs detailed metrics to `clusters_check.json`:
+
+```bash
+python3 cluster_check.py \
+  --project-id YOUR_PROJECT_ID \
+  --public-key YOUR_PUBLIC_KEY \
+  --private-key YOUR_PRIVATE_KEY
+```
+
+Or using environment variables:
+
+```bash
+python3 cluster_check.py
+```
 
 ## Usage Flags Calculation
 
@@ -82,8 +123,9 @@ Tier limits (CPU, RAM, IOPS) are loaded from `atlas_aws.csv`, which contains tie
 3. Create an API key with read permissions
 4. Copy the Public Key and Private Key
 5. Get Organization ID from "Settings" → "Organization Settings"
+6. Get Project ID from the project's URL or "Settings" → "Project Settings"
 
 ## License
 
-This script is provided as-is for collecting MongoDB Atlas metadata. It is not supported by MongoDB, Inc. under any of their commercial support subscriptions or otherwise. Any usage of keythe script is at your own risk.
+This script is provided as-is for collecting MongoDB Atlas metadata. It is not supported by MongoDB, Inc. under any of their commercial support subscriptions or otherwise. Any usage of this script is at your own risk.
 

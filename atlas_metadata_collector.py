@@ -190,12 +190,7 @@ class AtlasMetadataCollector:
             with open('atlas_aws.csv', 'r') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    # First column is the tier name (no header name)
-                    tier_name = None
-                    for key, value in row.items():
-                        if key.strip() == '':
-                            tier_name = value.strip()
-                            break
+                    tier_name = row.get('tier', '').strip()
                     if tier_name:
                         tier_specs[tier_name] = {
                             'cpu': float(row.get('cpu', 0)),
@@ -215,28 +210,33 @@ class AtlasMetadataCollector:
         
         spec = tier_specs[tier]
         
-        # Calculate memory usage percentage
-        memory_avg = metadata.get("memory_avg_gb")
+        # Get tier limits from CSV
         ram_limit = spec.get("ram")
-        if memory_avg is not None and ram_limit:
-            memory_usage_percent = (memory_avg / ram_limit) * 100
-            metadata["low_memory_use"] = True if memory_usage_percent < 40 else None
-            metadata["memory_tier_limit_gb"] = ram_limit
-        
-        # Calculate IOPS usage percentage
-        iops_avg = metadata.get("iops_avg")
         iops_limit = spec.get("iops")
-        if iops_avg is not None and iops_limit:
-            iops_usage_percent = (iops_avg / iops_limit) * 100
-            metadata["low_iops_use"] = True if iops_usage_percent < 40 else None
-            metadata["iops_tier_limit"] = iops_limit
-        
-        # Calculate CPU usage percentage
-        cpu_avg = metadata.get("cpu_avg_percent")
         cpu_limit = spec.get("cpu")
-        if cpu_avg is not None:
-            metadata["low_cpu_use"] = True if cpu_avg < 40 else None
+        
+        # Set tier limits
+        if ram_limit:
+            metadata["memory_tier_limit_gb"] = ram_limit
+        if iops_limit:
+            metadata["iops_tier_limit"] = iops_limit
+        if cpu_limit:
             metadata["cpu_tier_limit"] = cpu_limit
+        
+        # Calculate low_memory_use: true if memory_max_gb < memory_tier_limit_gb * 0.75
+        memory_max = metadata.get("memory_max_gb")
+        if memory_max is not None and ram_limit:
+            metadata["low_memory_use"] = True if memory_max < ram_limit * 0.75 else None
+        
+        # Calculate low_iops_use: true if iops_avg < 0.75 * iops_tier_limit
+        iops_avg = metadata.get("iops_avg")
+        if iops_avg is not None and iops_limit:
+            metadata["low_iops_use"] = True if iops_avg < iops_limit * 0.75 else None
+        
+        # Calculate low_cpu_use: true if cpu_avg_percent < 37
+        cpu_avg = metadata.get("cpu_avg_percent")
+        if cpu_avg is not None:
+            metadata["low_cpu_use"] = True if cpu_avg < 37 else None
         
         return metadata
     
@@ -311,6 +311,7 @@ class AtlasMetadataCollector:
             "low_memory_use": None,
             "low_iops_use": None,
             "low_cpu_use": None,
+            "low_disk_use": None,
             "cpu_tier_limit": None,
             "memory_tier_limit_gb": None,
             "iops_tier_limit": None,
@@ -523,6 +524,12 @@ class AtlasMetadataCollector:
                 metadata["disk_size_gb"] - metadata["disk_usage_max_gb"], 2
             )
         
+        # Calculate low_disk_use: true if disk_usage_max_gb < disk_size_gb * 0.3
+        disk_usage_max = metadata.get("disk_usage_max_gb")
+        disk_size = metadata.get("disk_size_gb")
+        if disk_usage_max is not None and disk_size is not None:
+            metadata["low_disk_use"] = True if disk_usage_max < disk_size * 0.3 else None
+        
         # Calculate usage flags
         tier_specs = self.load_tier_specs()
         metadata = self.calculate_usage_flags(metadata, tier_specs)
@@ -642,7 +649,7 @@ Environment variables:
                     'read_ops_max', 'read_ops_avg', 'write_ops_max', 'write_ops_avg',
                     'disk_usage_max_gb', 'disk_available_max_gb',
                     'cpu_tier_limit', 'memory_tier_limit_gb', 'iops_tier_limit',
-                    'low_cpu_use', 'low_memory_use', 'low_iops_use'
+                    'low_cpu_use', 'low_memory_use', 'low_iops_use', 'low_disk_use'
                 ])
                 
                 # Write cluster data
@@ -684,7 +691,8 @@ Environment variables:
                             cluster.get("iops_tier_limit"),
                             cluster.get("low_cpu_use"),
                             cluster.get("low_memory_use"),
-                            cluster.get("low_iops_use")
+                            cluster.get("low_iops_use"),
+                            cluster.get("low_disk_use")
                         ])
         else:
             # Default to JSON if extension is not recognized

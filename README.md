@@ -53,6 +53,28 @@ python3 atlas_metadata_collector.py \
 
 The output format is automatically detected by the file extension (`.json` or `.csv`).
 
+## Usage Flags Calculation
+
+The scripts calculate low usage flags based on tier specifications loaded from `atlas_aws.csv`. The tier limits are matched by joining the cluster's `tier` field from the API data to the `tier` column in the CSV file.
+
+### Flag Calculations
+
+- **`low_iops_use`**: `true` if `iops_avg < 0.75 * iops_tier_limit`
+  - Compares average IOPS usage against 75% of the tier's IOPS limit
+  
+- **`low_memory_use`**: `true` if `memory_max_gb < memory_tier_limit_gb * 0.75`
+  - Compares maximum memory usage against 75% of the tier's RAM limit
+  
+- **`low_cpu_use`**: `true` if `cpu_avg_percent < 37`
+  - Flags clusters with average CPU usage below 37%
+  
+- **`low_disk_use`**: `true` if `disk_usage_max_gb < disk_size_gb * 0.3`
+  - Flags clusters using less than 30% of their allocated disk space
+
+### Tier Specifications
+
+Tier limits (CPU, RAM, IOPS) are loaded from `atlas_aws.csv`, which contains tier specifications. The CSV must have columns: `tier`, `cpu`, `ram`, `connection`, and `iops`. Clusters with tiers not found in the CSV will have `null` values for tier limits and usage flags.
+
 ## Getting MongoDB Atlas Credentials
 
 1. Log in to MongoDB Atlas: https://cloud.mongodb.com/

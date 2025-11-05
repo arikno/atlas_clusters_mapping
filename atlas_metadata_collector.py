@@ -840,28 +840,47 @@ Environment variables:
             with open(output_file, 'w', newline='') as f:
                 writer = csv.writer(f)
                 
-                # Write header
+                # Write header - ordered by first part before underscore, with "_use" columns at end
                 writer.writerow([
+                    # Basic cluster info (no underscore grouping)
                     'project_name', 'project_id', 'cluster_name', 'cluster_id',
                     'cluster_type', 'mongodb_version', 'state', 'provider', 'region',
                     'tier', 'disk_size_gb', 'created_at', 'updated_at',
-                    'cpu_max_percent', 'cpu_avg_percent', 'memory_max_gb', 'memory_avg_gb',
-                    'iops_max', 'iops_avg', 'connections_max', 'connections_avg',
-                    'read_ops_max', 'read_ops_avg', 'write_ops_max', 'write_ops_avg',
-                    'disk_usage_max_gb', 'disk_available_max_gb',
-                    'cpu_tier_limit', 'memory_tier_limit_gb', 'iops_tier_limit', 'connections_tier_limit', 'disk_tier_limit_gb',
-                    'cpu_lower_tier_limit', 'memory_lower_tier_limit_gb', 'iops_lower_tier_limit', 'connections_lower_tier_limit', 'disk_lower_tier_limit_gb',
+                    
+                    # CPU metrics grouped together
+                    'cpu_max_percent', 'cpu_avg_percent', 'cpu_tier_limit', 'cpu_lower_tier_limit',
+                    
+                    # Memory metrics grouped together  
+                    'memory_max_gb', 'memory_avg_gb', 'memory_tier_limit_gb', 'memory_lower_tier_limit_gb',
+                    
+                    # IOPS metrics grouped together
+                    'iops_max', 'iops_avg', 'iops_tier_limit', 'iops_lower_tier_limit',
+                    
+                    # Connection metrics grouped together
+                    'connections_max', 'connections_avg', 'connections_tier_limit', 'connections_lower_tier_limit',
+                    
+                    # Disk metrics grouped together
+                    'disk_usage_max_gb', 'disk_available_max_gb', 'disk_tier_limit_gb', 'disk_lower_tier_limit_gb',
+                    
+                    # Read operations grouped together
+                    'read_ops_max', 'read_ops_avg',
+                    
+                    # Write operations grouped together
+                    'write_ops_max', 'write_ops_avg',
+                    
+                    # All "_use" columns at the end
                     'low_cpu_use', 'low_memory_use', 'low_iops_use', 'low_connections_use', 'low_disk_use',
                     'cpu_lower_tier_acceptable_use', 'memory_lower_tier_acceptable_use', 'iops_lower_tier_acceptable_use', 'connections_lower_tier_acceptable_use', 'disk_lower_tier_acceptable_use'
                 ])
                 
-                # Write cluster data
+                # Write cluster data - same order as header
                 for project in results["projects"]:
                     project_name = project["project_name"]
                     project_id = project["project_id"]
                     
                     for cluster in project["clusters"]:
                         writer.writerow([
+                            # Basic cluster info
                             project_name,
                             project_id,
                             cluster.get("cluster_name"),
@@ -875,30 +894,46 @@ Environment variables:
                             cluster.get("disk_size_gb"),
                             cluster.get("created_at"),
                             cluster.get("updated_at"),
+                            
+                            # CPU metrics grouped together
                             cluster.get("cpu_max_percent"),
                             cluster.get("cpu_avg_percent"),
+                            cluster.get("cpu_tier_limit"),
+                            cluster.get("cpu_lower_tier_limit"),
+                            
+                            # Memory metrics grouped together
                             cluster.get("memory_max_gb"),
                             cluster.get("memory_avg_gb"),
+                            cluster.get("memory_tier_limit_gb"),
+                            cluster.get("memory_lower_tier_limit_gb"),
+                            
+                            # IOPS metrics grouped together
                             cluster.get("iops_max"),
                             cluster.get("iops_avg"),
+                            cluster.get("iops_tier_limit"),
+                            cluster.get("iops_lower_tier_limit"),
+                            
+                            # Connection metrics grouped together
                             cluster.get("connections_max"),
                             cluster.get("connections_avg"),
-                            cluster.get("read_ops_max"),
-                            cluster.get("read_ops_avg"),
-                            cluster.get("write_ops_max"),
-                            cluster.get("write_ops_avg"),
+                            cluster.get("connections_tier_limit"),
+                            cluster.get("connections_lower_tier_limit"),
+                            
+                            # Disk metrics grouped together
                             cluster.get("disk_usage_max_gb"),
                             cluster.get("disk_available_max_gb"),
-                            cluster.get("cpu_tier_limit"),
-                            cluster.get("memory_tier_limit_gb"),
-                            cluster.get("iops_tier_limit"),
-                            cluster.get("connections_tier_limit"),
                             cluster.get("disk_tier_limit_gb"),
-                            cluster.get("cpu_lower_tier_limit"),
-                            cluster.get("memory_lower_tier_limit_gb"),
-                            cluster.get("iops_lower_tier_limit"),
-                            cluster.get("connections_lower_tier_limit"),
                             cluster.get("disk_lower_tier_limit_gb"),
+                            
+                            # Read operations grouped together
+                            cluster.get("read_ops_max"),
+                            cluster.get("read_ops_avg"),
+                            
+                            # Write operations grouped together
+                            cluster.get("write_ops_max"),
+                            cluster.get("write_ops_avg"),
+                            
+                            # All "_use" columns at the end
                             cluster.get("low_cpu_use"),
                             cluster.get("low_memory_use"),
                             cluster.get("low_iops_use"),
